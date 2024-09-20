@@ -114,23 +114,68 @@ app.get('/api/v1/clients/:id', (req, res) => {
  *      priority (optional): integer,
  *
  */
+
+/* ---------- Update code below ----------*/
+
+
 app.put('/api/v1/clients/:id', (req, res) => {
-  const id = parseInt(req.params.id , 10);
-  const { valid, messageObj } = validateId(id);
-  if (!valid) {
-    res.status(400).send(messageObj);
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { valid, messageObj } = validateId(id);
+    if (!valid) {
+      return res.status(400).send(messageObj);
+    }
+
+    let { status, priority } = req.body;
+
+    // Validate status
+    if (status && !['backlog', 'in-progress', 'complete'].includes(status)) {
+      return res.status(400).send({
+        message: 'Invalid status provided.',
+        long_message: 'Status can only be one of the following: backlog, in-progress, complete.',
+      });
+    }
+
+    // Validate priority
+    if (priority) {
+      const priorityValidation = validatePriority(priority);
+      if (priority && !priorityValidation.valid) {
+        return res.status(400).send(priorityValidation.messageObj);
+      }
+    }
+
+    // Update client
+    if (status) {
+      db.prepare('UPDATE clients SET status = ? WHERE id = ?').run(status, id);
+    }
+   
+
+      // Update client priority or assign lowest priority if not provided
+      if (!priority) {
+        const maxPriority = db.prepare('SELECT MAX(priority) FROM clients WHERE status = ?').get(status);
+        priority = maxPriority ? maxPriority.maxPriority + 1 : 1;
+      }
+      db.prepare('UPDATE clients SET priority = ? WHERE id = ?').run(priority, id);
+  
+      // Reorder priorities for clients with same status
+      const clientsWithSameStatus = db.prepare('SELECT * FROM clients WHERE status = ?').all(status);
+      clientsWithSameStatus.sort((a, b) => a.priority - b.priority);
+      clientsWithSameStatus.forEach((client, index) => {
+        db.prepare('UPDATE clients SET priority = ? WHERE id = ?').run(index + 1, client.id);
+      });
+
+    // Return updated clients
+    const updatedClients = db.prepare('SELECT * FROM clients').all();
+    return res.status(200).send(updatedClients);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).send({ message: 'Internal Server Error' });
   }
-
-  let { status, priority } = req.body;
-  let clients = db.prepare('select * from clients').all();
-  const client = clients.find(client => client.id === id);
-
-  /* ---------- Update code below ----------*/
-
-
-
-  return res.status(200).send(clients);
 });
+  
+  
 
-app.listen(3001);
-console.log('app running on port ', 3001);
+
+
+app.listen(3000);
+console.log('app running on port ', 3000);
